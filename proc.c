@@ -89,6 +89,10 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
 
+  p->timeslice = 10;       // default quantum = 10 ticks
+  p->ticks_used = 0;       // starts with zero ticks used
+  p->io_wait_time = 0;     // no I/O wait yet
+
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -214,6 +218,10 @@ fork(void)
 
   acquire(&ptable.lock);
 
+  np->timeslice = curproc->timeslice;   // inherit parent's quantum
+  np->ticks_used = 0;
+  np->io_wait_time = 0;
+
   np->state = RUNNABLE;
 
   release(&ptable.lock);
@@ -335,6 +343,13 @@ scheduler(void)
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
+
+  if(p->io_wait_time > 40 && p->timeslice < 60){
+    p->timeslice += 8;                    // MASSIVE BOOST for shell/cat/ls
+    if(p->timeslice > 60) p->timeslice = 60;
+}
+  p->io_wait_time = 0;                    // reset counter after scheduling
+  p->ticks_used = 0;                      // MUST reset every time we run it
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
@@ -459,9 +474,28 @@ wakeup1(void *chan)
 {
   struct proc *p;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == SLEEPING && p->chan == chan)
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state == SLEEPING && p->chan == chan){
+      // ===== ADAPTIVE TIME SLICE ADJUSTMENT =====
+      // If process slept a lot → I/O-bound → give longer slice
+      if(p->io_wait_time > 40){
+        if(p->timeslice < 40)
+          p->timeslice += 8;           // increase quantum (more responsive)
+      }
+      // If process used full slice and barely slept → CPU-bound → shorten
+      else if(p->ticks_used >= p->timeslice - 2 && p->io_wait_time < 15){
+        if(p->timeslice > 6)
+          p->timeslice -= 3;           // punish CPU hogs
+      }
+
+      // Reset counters for next scheduling round
+      p->ticks_used = 0;
+      p->io_wait_time = 0;
+      // ==========================================
+
       p->state = RUNNABLE;
+    }
+  }
 }
 
 // Wake up all processes sleeping on chan.
@@ -531,4 +565,43 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+// Add in proc.c — ONLY proc.c can see ptable!
+int
+setquantum_pid(int pid, int quantum)
+{
+  struct proc *p;
+
+  if(quantum < 1 || quantum > 100)
+    return -1;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid && p->state != UNUSED){
+      p->timeslice = quantum;
+      p->ticks_used = 0;
+      release(&ptable.lock);
+      return 0;
+    }
+  }
+  release(&ptable.lock);
+  return -1;
+}
+
+int
+gettimeslice(int pid)
+{
+  struct proc *p;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid && p->state != UNUSED){
+      int ts = p->timeslice;
+      release(&ptable.lock);
+      return ts;
+    }
+  }
+  release(&ptable.lock);
+  return -1;
 }

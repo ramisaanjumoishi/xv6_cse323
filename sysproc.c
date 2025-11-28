@@ -6,6 +6,11 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "spinlock.h"
+
+// These are declared in proc.c — we just need to use them
+extern struct proc proc[NPROC];
+extern struct spinlock ptable_lock;
 
 int
 sys_fork(void)
@@ -90,9 +95,26 @@ sys_uptime(void)
   return xticks;
 }
 
-
 int
 sys_getyear(void)
 {
   return 2025;  // Simple hardcoded year
+}
+
+int
+sys_setquantum_pid(void)
+{
+  int pid, quantum;
+  if(argint(0, &pid) < 0 || argint(1, &quantum) < 0)
+    return -1;
+  return setquantum_pid(pid, quantum);
+}
+
+int
+sys_gettimeslice(void)
+{
+  int pid;
+  if(argint(0, &pid) < 0)
+    return -1;
+  return gettimeslice(pid);
 }

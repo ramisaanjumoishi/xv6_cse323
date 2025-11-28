@@ -24,7 +24,8 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int getyear(void);
-
+int setquantum_pid(int pid, int quantum);
+int gettimeslice(int pid);
 
 // ulib.c
 int stat(const char*, struct stat*);

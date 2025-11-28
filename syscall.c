@@ -104,6 +104,9 @@ extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
 extern int sys_getyear(void);
+extern int sys_setquantum_pid(void);
+extern int sys_gettimeslice(void);
+
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -128,6 +131,8 @@ static int (*syscalls[])(void) = {
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
 [SYS_getyear]   sys_getyear,
+[SYS_setquantum_pid]   sys_setquantum_pid,
+[SYS_gettimeslice]     sys_gettimeslice,
 };
 
 void

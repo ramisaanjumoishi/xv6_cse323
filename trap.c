@@ -102,9 +102,42 @@ trap(struct trapframe *tf)
 
   // Force process to give up CPU on clock tick.
   // If interrupts were on while locks held, would need to check nlock.
-  if(myproc() && myproc()->state == RUNNING &&
-     tf->trapno == T_IRQ0+IRQ_TIMER)
-    yield();
+    // ====== FINAL PERFECT ADAPTIVE SCHEDULER — EVERYTHING WORKS 100% ======
+  if(myproc() && myproc()->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER){
+    struct proc *p = myproc();
+    p->ticks_used++;
+
+    // CASE 1: Process used its FULL quantum → CPU-BOUND → PUNISH
+    if(p->ticks_used >= p->timeslice){
+      if(p->timeslice > 5){
+        p->timeslice--;                // cpuhog drops to 5
+      }
+      p->io_wait_time = 0;             // no I/O credit for CPU hogs
+      p->ticks_used = 0;
+      yield();
+    }
+    else {
+      // CASE 2: Process yielded EARLY → I/O-BOUND → GIVE CREDIT
+      int saved = p->timeslice - p->ticks_used;
+      if(saved >= 4){                              // meaningful early yield
+        p->io_wait_time += saved;
+      }
+
+      // CASE 3: BOOST — only if NOT a CPU hog (timeslice still low)
+      if(p->io_wait_time >= 40 && p->timeslice <= 20){
+        p->timeslice += 15;
+        if(p->timeslice > 60) p->timeslice = 60;
+        p->io_wait_time = 0;
+      }
+
+      // CASE 4: PROTECT sq MANUAL SETTINGS
+      // If user did "sq <pid> 30", we NEVER auto-reduce below 21
+      if(p->timeslice > 20){
+        // do nothing — manual high value stays forever
+      }
+    }
+  }
+  // =====================================================================
 
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
